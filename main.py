@@ -4,55 +4,87 @@ import json
 import os
 from datetime import datetime
 
-# ================= 配置区 =================
-# 1. 你的 RSS 源 (使用你之前测试成功的 rssforever 镜像)
-RSS_URL = "https://rsshub.rssforever.com/wallstreetcn/hot"
+# ================= 配置区 (这里升级了!) =================
+# 我们精选了 3 个互补的源，覆盖全市场
+RSS_SOURCES = [
+    {
+        "name": "🌊 华尔街见闻 (全球宏观)",
+        "url": "https://rsshub.rssforever.com/wallstreetcn/live/global"
+    },
+    {
+        "name": "🇨🇳 财联社 (A股电报)",
+        "url": "https://rsshub.rssforever.com/cls/telegraph"
+    },
+    {
+        "name": "🇺🇸 格隆汇 (美股/港股)",
+        "url": "https://rsshub.rssforever.com/gelonghui/live"
+    }
+]
 
-# 2. 从 GitHub 设置里读取密钥 (不要改这里)
+# 密钥配置 (不用动)
 API_KEY = os.environ.get("DEEPSEEK_API_KEY") 
 PUSHPLUS_TOKEN = os.environ.get("PUSHPLUS_TOKEN")
-
-# DeepSeek 接口地址
 API_URL = "https://api.deepseek.com/chat/completions"
 
 # ================= 功能函数 =================
 
-def get_rss_news():
-    """抓取 RSS 新闻"""
-    print("正在抓取 RSS 数据...")
-    try:
-        feed = feedparser.parse(RSS_URL)
-        if not feed.entries:
-            print("❌ 未抓取到任何新闻，请检查 RSS 链接是否失效。")
-            return None
+def get_all_news():
+    """抓取所有源的新闻并汇总"""
+    print("🚀 开始全网扫描...")
+    combined_news = ""
+    
+    for source in RSS_SOURCES:
+        print(f"正在抓取: {source['name']}...")
+        try:
+            feed = feedparser.parse(source['url'])
+            if not feed.entries:
+                print(f"⚠️ {source['name']} 暂时没有更新，跳过。")
+                continue
+                
+            # 每个源只取前 4 条，防止文章过长 DeepSeek 消化不良
+            combined_news += f"\n--- 来自 {source['name']} ---\n"
+            for entry in feed.entries[:4]:
+                title = entry.title
+                # 清洗摘要，去掉HTML标签
+                summary = entry.summary[:100] if hasattr(entry, 'summary') else ""
+                combined_news += f"• {title}\n"
+                
+        except Exception as e:
+            print(f"❌ 抓取 {source['name']} 失败: {e}")
             
-        news_list = []
-        # 只取前 5 条，防止内容太长 AI 处理不了
-        for entry in feed.entries[:5]:
-            title = entry.title
-            #有些RSS摘要可能有HTML标签，简单清洗一下，或者直接用摘要
-            summary = entry.summary[:150] if hasattr(entry, 'summary') else "无摘要"
-            news_list.append(f"【标题】{title}\n【摘要】{summary}\n")
-            
-        return "\n---\n".join(news_list)
-    except Exception as e:
-        print(f"❌ 抓取出错: {e}")
-        return None
+    return combined_news
 
 def analyze_with_ai(text):
-    """调用 DeepSeek 进行分析"""
-    print("正在呼叫 DeepSeek 分析师...")
+    """调用 DeepSeek 专家模式"""
+    print("🧠 正在呼叫 DeepSeek 基金经理进行深度分析...")
     
-    # 这里是你的核心指令 (Prompt)
+    # 升级版 Prompt：更强调策略和逻辑
+    today_str = datetime.now().strftime('%m月%d日')
+    
     prompt = f"""
-    你是一名毒舌且专业的华尔街交易员。请阅读以下今日财经热点：
+    你是一名拥有 20 年经验的华尔街对冲基金经理，擅长通过碎片化信息发现主力资金动向。
+    请阅读以下来自多个渠道的财经资讯：
     {text}
     
-    任务：
-    1. 筛选出 3 个真正重要的新闻（忽略凑数的）。
-    2. 用通俗、犀利的语言点评（一针见血，不要废话）。
-    3. 明确指出：这对 A股/美股/加密货币 是【利好】还是【利空】。
-    4. 格式要求：使用 Markdown 格式，重点内容加粗。
+    请为你的 VIP 客户撰写一份《{today_str} 市场操盘内参》，严格遵守以下 Markdown 格式：
+
+    # 🦅 {today_str} 市场风向标
+
+    ## 🚨 核心预警 (仅 1 条)
+    * **一句话说清当下最大的风险或机会。** (例如：美联储鹰派发言，成长股注意回调)
+
+    ## 💰 资金暗流 (精选 3 个关键点)
+    * **[利好/利空/观望] 新闻标题**
+      > **深度逻辑**：不要复述新闻！告诉我主力在干什么？这对散户意味着什么？(语气要毒舌、犀利)
+
+    ## 🎯 操盘建议 (Actionable Advice)
+    * **A股**：(一句话策略，如：轻仓博弈/空仓看戏)
+    * **美股/加密**：(一句话策略)
+
+    **要求：**
+    1. 必须使用 Emoji 图标增加可读性。
+    2. 过滤掉无意义的通稿，只保留有交易价值的信息。
+    3. 语气要像在私募核心群里讲话，不要像新闻联播。
     """
     
     headers = {
@@ -70,42 +102,41 @@ def analyze_with_ai(text):
         return response.json()['choices'][0]['message']['content']
     except Exception as e:
         print(f"❌ AI 分析出错: {e}")
-        return "AI 罢工了，请检查 API Key 或 余额。"
+        return None
 
 def send_to_wechat(content):
-    """推送到微信 (通过 PushPlus)"""
-    print("正在推送到微信...")
+    """推送到微信"""
+    print("📨 正在推送到微信...")
     url = "http://www.pushplus.plus/send"
-    
-    # 今天的日期
     today = datetime.now().strftime('%Y-%m-%d')
     
     payload = {
         "token": PUSHPLUS_TOKEN,
-        "title": f"💰 财经早报 {today}", # 微信消息标题
+        "title": f"📈 华尔街内参 {today}",
         "content": content,
-        "template": "markdown" # 启用 Markdown 模式，排版更好看
+        "template": "markdown"
     }
     
     try:
         resp = requests.post(url, json=payload)
-        print("✅ 推送结果:", resp.text)
+        print("✅ 推送完成:", resp.text)
     except Exception as e:
         print(f"❌ 推送失败: {e}")
 
-# ================= 主程序入口 =================
+# ================= 主程序 =================
 if __name__ == "__main__":
-    # 1. 抓新闻
-    raw_news = get_rss_news()
+    # 1. 抓取多源数据
+    raw_news = get_all_news()
     
-    if raw_news:
+    if raw_news and len(raw_news) > 20: # 确保抓到了足够的内容
         # 2. AI 分析
         ai_report = analyze_with_ai(raw_news)
         
-        # 3. 发微信
-        # 可以在这里加个页脚
-        final_content = ai_report + "\n\n---\n🤖 本日报由 DeepSeek AI 自动生成"
-        send_to_wechat(final_content)
-        print("🎉 全部任务执行完毕！")
+        if ai_report:
+            # 3. 发送
+            send_to_wechat(ai_report)
+            print("🎉 今日任务圆满结束！")
+        else:
+            print("⚠️ AI 返回为空，不发送。")
     else:
-        print("⚠️ 没有新闻可供分析，跳过后续步骤。")
+        print("⚠️ 未抓取到有效新闻，请检查网络或源。")
